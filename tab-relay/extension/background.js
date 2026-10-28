@@ -7,6 +7,7 @@ const CHATGPT = {input:'#prompt-textarea', reply:'[data-message-author-role="ass
 let inTick = false;
 let commandQueue = Promise.resolve();
 let stopRequested = false;
+let immediateStop=Promise.resolve([]);
 const read = async key => (await chrome.storage.local.get(key))[key];
 const save = run => chrome.storage.local.set({run});
 const log = (run, message) => {run.log = [...(run.log || []), {at:Date.now(), message}].slice(-40);};
@@ -19,12 +20,11 @@ async function tabInfo(id) {
 async function profileFor(id) {
   const tab = await tabInfo(id);
   const origin = new URL(tab.url).origin;
-  const profiles = await read('profiles') || {};
-  const defaults={input:'',reply:'',send:'',busy:'',attachment:'',upload:'input[type="file"]',uploaded:'',uploadPending:''};
-  return {tab, origin, profile:{...defaults,...(/^https:\/\/(chatgpt\.com|chat\.openai\.com)$/.test(origin)?CHATGPT:{}),...(profiles[origin] || {})}};
+  const result=await page(id,{type:'detect'});
+  return {tab,origin,profile:result.profile};
 }
 async function page(id, message) {
-  await chrome.scripting.executeScript({target:{tabId:id}, files:['media.js','page.js']});
+  await chrome.scripting.executeScript({target:{tabId:id}, files:['detect.js','media.js','page.js']});
   if (message.type === 'send' && stopRequested) throw new Error('Stopped before sending.');
   const result = await chrome.tabs.sendMessage(id, message);
   if (!result?.ok) throw new Error(result?.error || 'The page did not respond.');
@@ -38,7 +38,7 @@ async function snap(side) {
   return result;
 }
 function checkProfile(profile) {
-  if (!profile.input || !profile.reply || !profile.send) throw new Error('Configure the message box, assistant replies, and send button for both tabs.');
+  if (!profile.input || !profile.reply || !profile.send) throw new Error('Automatic detection could not identify this chat. Open its conversation and try again.');
 }
 async function filesFor(side, snapshot) {
   const items=snapshot.attachments || [];
@@ -51,7 +51,13 @@ async function filesFor(side, snapshot) {
     let file;
     if(['data:','blob:','inline:'].includes(url.protocol) || url.origin===new URL(side.url).origin){
       file=(await page(side.id,{type:'readAttachment',profile:side.profile,expectedUrl:side.url,item})).file;
-    } else file=await downloadExternal(item,side.url,chrome.permissions);
+    } else {
+      const pattern=permissionPattern(url.href);
+      if(!await chrome.permissions.contains({origins:[pattern]})){
+        const error=new Error('Additional file-host access is needed. Click Start Sharing again to approve it.');error.needsOrigins=[pattern];throw error;
+      }
+      file=await downloadExternal(item,side.url,chrome.permissions);
+    }
     total+=file.size;
     if(file.size>MAX_FILE || total>MAX_TOTAL)throw new Error('Attachment limit: 10 MB each, 20 MB total. Nothing was sent.');
     files.push(file);
@@ -78,14 +84,15 @@ async function start(message) {
     sides.push({id, url:tab.url, title:tab.title, profile});
   }
   const snapshots = await Promise.all(sides.map(snap));
-  if (snapshots.some(s => s.busy || !s.inputReady)) throw new Error('Both chats must be idle with an enabled message box.');
+  if (snapshots.some(s => message.automatic ? s.inputCount!==1 : (s.busy || !s.inputReady))) throw new Error('Both chats must be idle with an enabled message box.');
   if (snapshots.some(s => s.inputText.trim() || s.draftAttachments)) throw new Error('Clear or send existing drafts and attachments in both tabs before starting.');
   if (stopRequested) throw new Error('Stopped before starting.');
-  const run = {id:crypto.randomUUID(), status:'running', sides, limit, sent:0, next:0,
-    started:Date.now(), waitingSince:Date.now(), phase:'waiting', baseline:snapshots[0], seen:[], log:[], existing:!!message.existing};
+  const source=message.automatic && !hasContent(snapshots[0]) && !snapshots[0].busy && (hasContent(snapshots[1]) || snapshots[1].busy)?1:0;
+  const run = {id:crypto.randomUUID(), status:'running', sides, limit, sent:0, next:source,
+    started:Date.now(), waitingSince:Date.now(), phase:'waiting', baseline:snapshots[source], seen:[], log:[], existing:!!message.existing};
   if (message.existing) {
-    if (!hasContent(snapshots[0])) throw new Error('Tab A has no visible assistant reply.');
-    log(run, 'Waiting for the latest reply in tab A to settle.');
+    if (!hasContent(snapshots[source]) && !snapshots[source].busy) throw new Error('Tab A has no visible assistant reply.');
+    log(run,`Waiting for the latest reply in Chat ${source?'B':'A'} to settle.`);
     await save(run);
   } else {
     run.phase = 'sending'; log(run, 'Sending the opening message to tab A.'); await save(run);
@@ -126,7 +133,7 @@ async function tick() {
     if (baseline.busy || !baseline.inputReady || baseline.inputText.trim() || baseline.draftAttachments) {
       await pause(run, 'The receiving tab is busy or contains a draft. Nothing was overwritten.'); return;
     }
-    if(current.attachments?.length && (!run.sides[target].profile.uploaded || !run.sides[target].profile.uploadPending)) throw new Error('Configure uploaded-file previews and upload-progress selectors on the receiving site before transferring images/files.');
+    if(current.attachments?.length && (!run.sides[target].profile.uploaded || !run.sides[target].profile.uploadPending)) throw new Error('The receiving site’s upload controls could not be detected automatically.');
     const attachments=await filesFor(run.sides[run.next],current);
     const confirmedSource = await snap(run.sides[run.next]);
     if (confirmedSource.busy || !confirmedSource.inputReady || contentKey(confirmedSource) !== contentKey(current) || confirmedSource.count !== current.count) {
@@ -145,11 +152,16 @@ async function tick() {
     else if (run.sent >= run.limit) await pause(run, 'Message limit reached.', 'done');
     else await save(run);
   } catch (error) {
-    if (run) await pause(run, error.message);
+    if (run) {if(error.needsOrigins)run.needsOrigins=error.needsOrigins;await pause(run, error.message);}
   } finally {inTick = false;}
 }
 
 async function command(message, sender) {
+  if(message.type==='inspectPair'){
+    const results=[];
+    for(const id of [Number(message.a),Number(message.b)]){const {tab,profile}=await profileFor(id);const snapshot=await snap({id,url:tab.url,profile});results.push({id,kind:profile.kind,ready:snapshot.inputReady,hasReply:hasContent(snapshot),busy:snapshot.busy,attachments:snapshot.attachments.length});}
+    return results;
+  }
   if(message.type==='inspectMedia') {
     const results=[];const origins=new Set();
     for(const id of [Number(message.a),Number(message.b)]){
@@ -179,15 +191,30 @@ async function command(message, sender) {
   }
   if (message.type === 'start') {
     const previous = await read('run');
-    try {return await start(message);} catch(error) {
+    try {
+      if(message.resumeId && previous?.id===message.resumeId && previous.status==='paused' && previous.needsOrigins?.length){
+        if(previous.sides[0].id!==Number(message.a) || previous.sides[1].id!==Number(message.b))throw new Error('Selected tabs changed. Start a fresh conversation.');
+        for(const side of previous.sides){const current=await snap(side);if(current.busy || !current.inputReady || current.inputText.trim() || current.draftAttachments)throw new Error('Clear drafts and wait for the selected chats before continuing.');}
+        stopRequested=false;previous.status='running';previous.note='';previous.needsOrigins=[];previous.observation=null;previous.waitingSince=Date.now();
+        await save(previous);await chrome.alarms.create('relay',{periodInMinutes:0.5});return previous;
+      }
+      return await start(message);
+    } catch(error) {
       const run = await read('run');
       if (run?.status === 'running' && run.id !== previous?.id) await pause(run, error.message);
       throw error;
     }
   }
   if (message.type === 'stop') {
-    const run = await read('run');
-    if (run) await pause(run, 'Stopped by you. Existing generations continue in their tabs.', 'stopped');
+    let run = await read('run');
+    if(run?.status!=='running' && message.a && message.b){const sides=[];for(const id of [Number(message.a),Number(message.b)]){const {tab,profile}=await profileFor(id);sides.push({id,url:tab.url,profile});}run={id:crypto.randomUUID(),sides,sent:0,limit:100,next:0,log:[]};}
+    if (run) {
+      const early=await immediateStop;
+      const results=await Promise.allSettled(run.sides.map(async side=>{const tab=await tabInfo(side.id);if(tab.url!==side.url)throw new Error('Tab navigated');return page(side.id,{type:'halt',profile:side.profile});}));
+      const attempted=[...early,...results].reduce((n,r)=>n+(r.status==='fulfilled'?(Number(r.value?.attempted)||0):0),0);
+      const detail=results.some(r=>r.status==='rejected')?' One or more tabs could not be reached.':'';
+      await pause(run,`Sharing stopped. ${attempted?'Stop controls clicked in the selected chats.':'No active stop controls were detected.'}${detail}`,'stopped');
+    }
     await chrome.alarms.clear('relay'); return {};
   }
   if (message.type === 'tick') {await tick(); return {};}
@@ -199,7 +226,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   // A popup Stop immediately cancels page-side sends that have not clicked yet.
   if (message.type === 'stop') {
     stopRequested = true;
-    read('run').then(run => run?.sides.forEach(side => chrome.tabs.sendMessage(side.id, {type:'cancel'}).catch(() => {})));
+    immediateStop=read('run').then(run=>Promise.allSettled(((run?.status==='running' || !message.a || !message.b)?(run?.sides || []):[]).map(async side=>{const tab=await tabInfo(side.id);if(tab.url!==side.url)throw Error('Tab navigated');return chrome.tabs.sendMessage(side.id,{type:'halt',profile:side.profile});}))); 
   }
   const job = commandQueue.then(() => command(message, sender));
   commandQueue = job.catch(() => {});

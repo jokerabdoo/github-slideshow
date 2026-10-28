@@ -96,7 +96,7 @@
     if(files.length>MAX_FILES || files.some(f=>f.size>MAX_FILE) || files.reduce((n,f)=>n+f.size,0)>MAX_TOTAL) throw new Error('Attachment limit: 5 files, 10 MB each, 20 MB total.');
     if(!profile.uploaded || !profile.uploadPending) throw new Error('Configure uploaded-file previews and upload-progress selectors for the receiving site before relaying attachments.');
     const inputs=matches(document,profile.upload || 'input[type="file"]').filter(el=>el instanceof HTMLInputElement && el.type==='file');
-    if(inputs.length!==1 || inputs[0].disabled) throw new Error('Configure exactly one enabled file-upload input (it may be hidden).');
+    if(inputs.length!==1 || inputs[0].disabled) throw new Error(profile.auto?'The chat’s file-upload control could not be detected automatically. Nothing was sent.':'Configure exactly one enabled file-upload input (it may be hidden).');
     const input=inputs[0];
     if(files.length>1 && !input.multiple) throw new Error('This upload control accepts only one file. The reply contains several attachments.');
     if(draft(profile))throw new Error('The receiving chat already contains attachments. Nothing was overwritten.');
@@ -117,7 +117,7 @@
       else readySince=0;
       await new Promise(resolve=>setTimeout(resolve,250));
     }
-    throw new Error('Upload readiness could not be confirmed within 60 seconds. Check the attachments; no send was attempted.');
+    throw new Error('The chat did not confirm the uploaded filenames within 60 seconds. No message was sent.');
   }
   function uploadState(profile,files){
     const previews=matches(document,profile.uploaded).filter(visible);

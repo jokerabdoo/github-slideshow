@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Tab Relay",
-  "version": "0.2.1",
-  "description": "Relay text, images and downloadable files between two chat tabs you select.",
+  "version": "0.3.0",
+  "description": "Choose two chat tabs and share their latest text, images and files automatically.",
   "permissions": [
     "tabs",
     "scripting",
@@ -19,7 +19,17 @@
   },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Tab Relay"
+    "default_title": "Tab Relay",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png"
+    }
   },
-  "minimum_chrome_version": "120"
+  "minimum_chrome_version": "120",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
 }

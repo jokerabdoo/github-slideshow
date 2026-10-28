@@ -10,6 +10,7 @@
   const media = globalThis.__tabRelayMedia;
 
   function snapshot(profile) {
+    if(profile.auto)globalThis.__tabRelayDetect.resolve();
     const replies = all(profile.reply);
     const inputs = all(profile.input), sends = all(profile.send);
     const input = inputs.at(-1), send = sends.at(-1);
@@ -29,15 +30,16 @@
   async function send(profile, text, expectedUrl, attachments = []) {
     if (sending) throw new Error('A send is already in progress in this tab. Check the chat before restarting.');
     sending = true; cancelled = false;
+    if(profile.auto)globalThis.__tabRelayExpectedFiles=attachments.map(file=>file.name);
     const heartbeat=setInterval(()=>chrome.runtime.sendMessage({type:'heartbeat'}).catch(()=>{}),10000);
-    try {return await performSend(profile, text, expectedUrl, attachments);} finally {clearInterval(heartbeat);sending = false;}
+    try {return await performSend(profile, text, expectedUrl, attachments);} finally {clearInterval(heartbeat);sending = false;globalThis.__tabRelayExpectedFiles=[];}
   }
   async function performSend(profile, text, expectedUrl, attachments) {
     const startUrl = expectedUrl || location.href;
     if (location.href !== startUrl) throw new Error('The receiving tab navigated. No send was attempted.');
     const before = snapshot(profile);
     if (before.busy) throw new Error('The receiving chat is still generating.');
-    if (!before.inputReady) throw new Error('Select exactly one editable message box. Configure this tab.');
+    if (!before.inputReady) throw new Error(profile.auto?'Could not identify one editable message box automatically. Open the chat conversation and try again.':'Select exactly one editable message box. Configure this tab.');
     if (before.inputText.trim() || before.draftAttachments) throw new Error('The receiving message box contains a draft or attachments. Clear or send them yourself first.');
     const assertActive=()=>{
       if(cancelled)throw new Error('Relay stopped before send. Check any unsent draft/attachments.');
@@ -133,9 +135,16 @@
   }
 
   chrome.runtime.onMessage.addListener((message, sender, respond) => {
+    if (message.type === 'halt') {
+      cancelled=true;
+      const profile=message.profile?.auto?globalThis.__tabRelayDetect.resolve():message.profile;
+      const buttons=profile?all(profile.busy).filter(el=>!isDisabled(el)):[];
+      buttons.forEach(button=>button.click());respond({ok:true,attempted:buttons.length});return;
+    }
     if (message.type === 'cancel') {cancelled = true; respond({ok:true}); return;}
-    if (!['snapshot', 'send', 'pick', 'readAttachment'].includes(message.type)) return;
+    if (!['snapshot', 'send', 'pick', 'readAttachment','detect'].includes(message.type)) return;
     Promise.resolve().then(() => {
+      if(message.type==='detect')return {profile:globalThis.__tabRelayDetect.resolve()};
       if (message.type === 'snapshot') return snapshot(message.profile);
       if (message.type === 'send') return send(message.profile, message.text, message.expectedUrl, message.attachments);
       if (message.type === 'readAttachment') {

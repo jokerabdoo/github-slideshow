@@ -9,6 +9,7 @@ const assert = require('node:assert/strict');
 (async () => {
   const fixture = `<!doctype html><html><body><main><div id="messages"></div><textarea id="input"></textarea><button id="send">Send</button><button id="stop" hidden>Stop</button></main><script>
     window.sent=[];
+    window.stopClicks=0;document.querySelector('#stop').onclick=()=>{window.stopClicks++;document.querySelector('#stop').hidden=true;};
     document.querySelector('#send').onclick=()=>{
       const input=document.querySelector('#input');
       window.sent.push(input.value); input.value=''; input.dispatchEvent(new Event('input',{bubbles:true}));
@@ -53,7 +54,7 @@ const assert = require('node:assert/strict');
       scripting:{executeScript:async({target})=>{
         const p=pages.get(target.tabId);
         await p.evaluate(()=>{globalThis.chrome={runtime:{onMessage:{addListener:fn=>{globalThis.contentListener=fn;}},sendMessage:async()=>({})}};});
-        for(const name of ['media.js','page.js'])await p.addScriptTag({content:fs.readFileSync(path.join(root,name),'utf8')});
+        for(const name of ['detect.js','media.js','page.js'])await p.addScriptTag({content:fs.readFileSync(path.join(root,name),'utf8')});
       }},
       alarms:{create:async()=>{},clear:async()=>{},onAlarm:{addListener:()=>{}}},
       action:{setBadgeText:async()=>{},setBadgeBackgroundColor:async()=>{}},
@@ -255,6 +256,29 @@ const assert = require('node:assert/strict');
     const unsupported=await command({type:'test',id:1});assert.match(unsupported.attachments[0].error,/site-specific/);
     console.log('PASS: private internal file links are reported instead of silently omitted');
 
+    await a.locator('#stop').evaluate(el=>el.hidden=false);await b.locator('#stop').evaluate(el=>el.hidden=false);
+    const stopCounts=await Promise.all([a.evaluate(()=>window.stopClicks),b.evaluate(()=>window.stopClicks)]);
+    await command({type:'stop',a:1,b:2});
+    assert.equal(await a.evaluate(()=>window.stopClicks),stopCounts[0]+1);
+    assert.equal(await b.evaluate(()=>window.stopClicks),stopCounts[1]+1);
+    console.log('PASS: Stop Both Chats clicks both detected generation-stop controls');
+
+    const semantic=await context.newPage();await semantic.goto(base+'/semantic-chat');
+    await semantic.setContent('<textarea placeholder="Search videos"></textarea><section><div data-message-role="user">User words</div><div data-message-role="assistant">Assistant answer only</div></section><form><textarea placeholder="Ask Muse a question"></textarea><button type="submit" aria-label="Send message">↑</button><button type="button" aria-label="Stop generating">■</button></form>');
+    await semantic.addScriptTag({content:fs.readFileSync(path.join(root,'detect.js'),'utf8')});
+    const detected=await semantic.evaluate(()=>{const p=__tabRelayDetect.resolve();return {input:document.querySelector(p.input)?.getAttribute('placeholder'),reply:document.querySelector(p.reply)?.textContent,stop:document.querySelectorAll(p.busy).length};});
+    assert.equal(detected.input,'Ask Muse a question');assert.equal(detected.reply,'Assistant answer only');assert.equal(detected.stop,1);
+    await semantic.evaluate(()=>{document.querySelector('form').append(document.querySelector('form textarea').cloneNode());});
+    assert.equal(await semantic.evaluate(()=>document.querySelectorAll(__tabRelayDetect.resolve().input).length),0);
+    await semantic.close();
+    console.log('PASS: semantic auto-detection ignores search/user messages and refuses ambiguous composers');
+
+    await a.locator('#messages').evaluate(el=>el.replaceChildren());
+    delete data.profiles;
+    await command({type:'start',a:1,b:2,existing:true,limit:1,automatic:true});
+    assert.equal(getRun().next,1);await command({type:'stop'});
+    console.log('PASS: with no saved configuration, Start automatically chooses Chat B when only B has a latest reply');
+
     const popup=await context.newPage();
     await popup.exposeFunction('relayTestApi',async(method,value)=>{
       if(method==='message'){try{return {ok:true,result:await command(value)};}catch(e){return {ok:false,error:e.message};}}
@@ -263,16 +287,21 @@ const assert = require('node:assert/strict');
       if(method==='tabs')return [...pages.keys()].map(tabInfo);
       if(method==='remove'){delete data[value];return;}
     });
-    await popup.addInitScript(()=>{globalThis.chrome={runtime:{sendMessage:m=>relayTestApi('message',m)},storage:{local:{get:k=>relayTestApi('get',k),set:v=>relayTestApi('set',v),remove:k=>relayTestApi('remove',k)},onChanged:{addListener:()=>{}}},tabs:{query:()=>relayTestApi('tabs')},permissions:{request:async()=>true}};});
+    await popup.addInitScript(()=>{globalThis.chrome={runtime:{sendMessage:m=>relayTestApi('message',m)},storage:{local:{get:k=>relayTestApi('get',k),set:v=>relayTestApi('set',v),remove:k=>relayTestApi('remove',k)},onChanged:{addListener:()=>{}}},tabs:{query:()=>relayTestApi('tabs')},permissions:{request:async()=>true,contains:async()=>true}};});
     await popup.goto(base+'/extension/popup.html');
     await popup.waitForFunction(()=>document.querySelector('#a').options.length===3);
     await popup.selectOption('#a','1');await popup.selectOption('#b','2');
-    await popup.click('#configA');await popup.waitForSelector('#field-input');
-    await popup.click('#test');await popup.waitForFunction(()=>document.querySelector('#sample').textContent.includes('message box found'));
-    await popup.click('#closeConfig');
+    assert.equal(await popup.locator('select').count(),2);
+    assert.equal(await popup.locator('#configA,#configB,#fields,#seed,#limit').count(),0);
+    await popup.click('#start');
+    for(let i=0;i<60 && getRun().status!=='running';i++){await new Promise(r=>setTimeout(r,100));const message=await popup.locator('#error').innerText();if(message)throw Error('Popup Start: '+message);}
+    assert.equal(getRun().status,'running','Popup Start failed: '+await popup.locator('#error').innerText());
+    await popup.click('#stop');
+    await popup.waitForFunction(()=>document.querySelector('#statusTitle').textContent==='Stopped');
+    assert.equal(getRun().status,'stopped');
     await popup.screenshot({path:path.join(__dirname,'../preview.png'),fullPage:true});
     assert.equal(errors.length,0,'Browser errors: '+errors.join('; '));
-    console.log('PASS: popup renders and reads configured controls without JavaScript errors');
+    console.log('PASS: simple popup has two tab selectors, no configuration fields, and working Start/Stop');
     console.log('NOTE: Chrome extension APIs shimmed; unpacked extension loading is blocked by this environment browser policy.');
   } finally {
     Date.now=realNow;if(browser)await browser.close();await new Promise(resolve=>server.close(resolve));

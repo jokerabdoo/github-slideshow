@@ -1,76 +1,60 @@
-# Tab Relay 0.2.1
+# Tab Relay 0.3.0 — Automatic sharing
 
-A Chrome 120+ / Chromium Manifest V3 extension that relays assistant replies between two chat tabs in your own browser: **text, images, and downloadable file attachments**, including replies with no text. It uses your signed-in website sessions, with no API key or extra server.
+Choose two chat tabs, click **Start Sharing**, and click **Stop Both Chats** when finished. There are no configuration fields, opening-prompt boxes, reply-type switches, or manual attachment selectors.
 
-This is a first version with ChatGPT text-control presets and configurable controls for Muse or another chat site. Live ChatGPT/Muse attachment integration has not been verified. Websites with private download protocols or custom upload widgets may need a site-specific adapter.
+## Install or update
 
-## Install
+1. Extract `TabRelay-v0.3.0.zip`.
+2. Open `chrome://extensions` and enable **Developer mode**.
+3. For a new installation, click **Load unpacked** and select the extracted `tab-relay-extension` folder containing `manifest.json`.
+4. To replace 0.2.1, remove that extension and load the new folder, or replace the old folder's contents and click **Reload**. Reload the chat tabs too, so their page adapters update.
+5. Pin Tab Relay using Chrome's puzzle-piece menu.
 
-1. Extract `tab-relay-extension.zip`.
-2. Open `chrome://extensions` (or `edge://extensions`), enable **Developer mode**, and click **Load unpacked**.
-3. Select the extracted **tab-relay-extension** folder containing `manifest.json`.
-4. Pin **Tab Relay** from the browser Extensions menu. For an existing installation, replace its files and click **Reload** on the Extensions page, then reload the two chat tabs.
+Requires Chrome/Chromium 120+. The browser may require you to approve access to the two sites. This is a browser permission, not extension configuration.
 
-Install this in your own browser. This cloud workspace cannot connect to your personal tabs or install it remotely. Managed browsers may block unpacked extensions.
+## Use
 
-## Connect two chats
+1. Open ChatGPT and Muse in the same browser profile and sign in yourself.
+2. Select the two tabs. Muse and ChatGPT are preselected when recognizable tabs are available. The small arrows swap their order.
+3. Click **Start Sharing**. It uses Chat A's latest assistant reply, or Chat B's if only B has a reply. If the first reply is still generating, it waits.
+4. Replies continue alternating automatically. Text, images and files are detected together, including replies with no text. You do not choose a mode or select every attachment.
+5. Click **Stop Both Chats** to cancel future relay submissions and attempt to click both websites' generation-stop controls. The status reports whether stop controls were found. This cannot undo a sent message or guarantee cancellation of a provider's upload/generation.
 
-1. Open dedicated ChatGPT and Muse conversations in the same browser profile. Sign in yourself.
-2. Choose **Tab A** and **Tab B** in Tab Relay, then **Allow selected sites**.
-3. Configure each tab. ChatGPT has text presets; other sites require page controls.
-4. Test read access on both tabs. Verify that the latest reply sample includes the correct assistant text and lists its images/files.
+Use dedicated conversations and keep their message boxes empty. A draft or pre-existing attachment pauses the relay. Typing while an upload is in progress is preserved instead of overwritten.
 
-Controls are CSS selectors, saved per site origin. **Pick on page** lets you select a visible element, then reopen the extension to continue. Select repeated assistant-only containers that also match future replies, rather than one paragraph or one historical message. CSS is editable when a picker result is too broad or too narrow.
+An internal ceiling pauses each run after 100 submissions. Replies must settle for eight seconds before relay; popup checks run about every two seconds and background alarm checks about every thirty seconds. The popup can close without stopping sharing. Stop it explicitly before leaving. Sleeping/discarded tabs or a sleeping computer delay checks. Browser startup pauses an existing run.
 
-| Control | What it selects |
-| --- | --- |
-| Message box | Exactly one editable text composer. |
-| Assistant replies | Repeated containers for assistant replies, including the images/file links inside them. |
-| Send button | Exactly one enabled submission button. |
-| Stop button | The stop-generating button while a reply is streaming. Strongly recommended. |
-| Reply images / download links | Optional selector **inside** the latest reply. Blank uses automatic detection. Can select `img`, `a[href]`, and `svg` elements. |
-| File-upload input | The receiving site's actual `input[type="file"]`. Usually hidden, so enter CSS. The default works only if exactly one such input exists. |
-| Completed upload previews | One preview/chip per attached file after the website stages it in the composer. Required to relay images/files. Pick a repeated per-file container. |
-| Upload-progress indicator | Visible indicator while a file is uploading. Required to relay images/files. Configure it while an upload is in progress; it should disappear when ready. |
+## Automatic detection
 
-Website upload controls are not standardized. Both completed-preview and upload-progress selectors must be configured on each receiving site. The extension waits for the exact preview count, matching filenames in preview text/accessibility labels, no progress indicators, and a 1.5-second quiet period before inserting text and checking Send. Preview selectors must include a visible or accessible filename for every file. Sites with unnamed thumbnails need an adapter. Immediately before Send the files are checked again. Text typed by you during the upload wait is preserved and stops the submission. Incorrect selectors can still misidentify readiness; verify them with a small file first. This is page-state confirmation, not a server-side receipt.
+A site-aware adapter recognizes ChatGPT's established message attributes and searches Muse/other chat pages for assistant-role containers, semantic message boxes, forms, labelled Send/Stop buttons, native file inputs, filename previews, and upload indicators. Detection refreshes at each page read to accommodate rerendering. Search boxes and user messages are excluded; ambiguous controls stop the run rather than being guessed.
 
-## Images and file transfer
+Saved selector configuration from older versions is not used by the new automatic flow. There is no setup screen. If a website does not expose recognizable controls, the extension reports that it cannot identify them automatically. A code adapter update may be needed; the user is not asked to write CSS.
 
-- Images and downloadable files are transferred as **actual file bytes**, not just link text. Text accompanying the reply is sent in the same message. Image-only and file-only replies are supported.
-- Automatic detection includes visible images around 96 pixels or larger, large inline SVG diagrams, download links, and links whose URL or visible label has a recognized file extension. Tiny icons are skipped. Image bytes come from the displayed source unless an explicit download link is available; that source may be a preview rather than the original resolution. The optional attachment selector can narrow or override this detection.
-- Supported sources: accessible same-site HTTP(S) file URLs, `blob:` files, and inline/data images/files. Same-site reads use that page's existing authentication.
-- Cross-site/CDN files require **Check attachments**, then **Allow file hosts**. This grants permission only to the displayed hosts. The extension fetches those files without cookies or HTTP credentials. Signed URLs can work; third-party files requiring cookie login may not. New hosts appearing later pause the run until permitted.
-- Limits: **5 attachments per reply, 10 MB per file, 20 MB total**. Over-limit replies pause instead of being truncated. Each download has a 20-second timeout; upload readiness has a 60-second timeout.
-- File bytes are held temporarily in memory during transfer. They are not written to extension storage or your Downloads folder. Settings, current reply metadata/text, and a short activity log are stored locally; duplicate history is hashed. Remove the extension or clear its storage to erase retained state.
-- A failed download, failed image, login-page response, unsupported private link such as `sandbox:/...`, unresolvable custom download button, or unavailable uploader pauses the relay. It does **not** silently send only the text. Some downloads need an adapter for that website.
-- It does not execute relayed files. The receiving site decides which file formats and sizes it accepts. Canvas-only images, closed shadow roots, cross-origin upload frames, and file-picker-only widgets may require an adapter. Attachments cannot be promised on every website.
+**Live ChatGPT/Muse compatibility is not guaranteed.** The environment could not inspect Muse's public page (HTTP 403), and cannot access your signed-in browser tabs. This release is validated against local browser fixtures, including a semantic chat layout and a mixed-file conversation. Actual Muse and ChatGPT layouts still need a supervised live run.
 
-## Run a conversation
+## Images and files
 
-Give an **Opening message**, or select **Start with tab A's latest assistant reply** to relay the latest existing answer, images, and files first. Choose a small **Message limit**, then **Start relay**.
+- Transfers actual accessible file bytes with the text from that reply, not just pasted links.
+- Automatically detects visible images roughly 96px or larger, large SVG diagrams, download links, and recognized file-extension links. Small icons are ignored. Displayed images may be previews rather than full-resolution originals.
+- Reads same-site authenticated file URLs, blob files and inline/data images. Cross-site/CDN files require an optional permission for the file host. If needed, sharing pauses; click **Start Sharing** again to approve that host and continue the same run.
+- External file requests omit cookies and do not follow redirects. Files requiring third-party authentication, redirects, internal `sandbox:` links or custom-only download buttons can require a site adapter.
+- Uploads through the site's native file input, and waits for matching filenames in previews and no recognized progress indicator before submitting. Controls are checked again before Send.
+- Limits: 5 files per reply, 10 MB each, 20 MB total; 20-second download and 60-second upload-readiness timeouts. Over-limit or inaccessible files pause the whole reply rather than silently dropping attachments.
+- Files are held temporarily in memory, not saved to your Downloads folder or extension storage. They are not executed by the extension.
 
-The opening message counts toward the limit. Every A → B or B → A submission counts as one message, including all of that reply's attachments.
+Some custom upload widgets, canvas-only images, unnamed thumbnails, closed shadow roots and cross-origin frames are not supported automatically. Source replies are not continuously monitored while a long recipient upload runs; completion/readiness and composer clearing are page-state heuristics, not server-side receipts. Unsupported files or changing URLs pause the relay. Inspect both chats before restarting after uncertain delivery; the extension never retries such a send automatically.
 
-The extension waits for a new reply, no busy signal, loaded images, and at least eight seconds of unchanged text/attachment metadata. It reads attachments, verifies the source is still the same, stages files in the recipient, waits for upload readiness, and sends once. Text may continue to stream after a long quiet gap if the stop selector is absent or wrong: completion remains a heuristic.
+## Permissions and privacy
 
-Checks run roughly every two seconds while the popup is open and every thirty seconds after it closes. Sleeping/discarded tabs or a sleeping computer delay this. Closing the popup does **not** stop the relay. Press **Stop** to stop future sends; it cannot undo a submission already clicked, cancel a website's generation, or guarantee cancellation of an upload already started. Unsent drafts/files may remain after a stop or error: inspect and clear them yourself before restarting.
+`tabs` lists tab titles/URLs; `scripting` runs the selected-tab adapters; `storage` retains local settings/reply state; `alarms` schedules checks. Optional site access is requested for selected sites and approved file hosts. No backend, telemetry, remote script loading or credential API is used. Relayed content is deliberately sent to the two chat services and consumes their normal account limits. Remove the extension or clear its local storage to delete retained relay state.
 
-The relay pauses on drafts or pre-existing attached files, navigation, repeated replies, unsupported attachments, missing controls, uncertain delivery, or a ten-minute response timeout. It never retries an uncertain submission automatically. Use stable existing conversation URLs; if sending the first message creates a new URL, let it finish and restart using the latest reply on that URL. Closing/reopening the browser pauses the relay.
+## Development
 
-## Permissions and sharing
-
-`tabs` lists tab titles/URLs; `scripting` runs the selected-tab adapters; `storage` retains settings/state; `alarms` schedules background checks. Website access is optional and requested for selected sites and any explicitly approved file hosts. Content from the chosen chats is deliberately shared with the other chosen chat service and may consume your account's message/upload limits. There is no extension backend, analytics, remote code loading, or credential API.
-
-The extension is a two-tab chat relay, not native ChatGPT work mode or a general browser-control tool.
-
-## Development and tests
-
-No build step or runtime package dependencies are needed. Load `extension/` directly.
+No build step or runtime package dependencies. Load `extension/` directly.
 
 ```sh
 npm test
 npm run test:browser
 ```
 
-Browser tests need Playwright in Node's module search path and Chromium at `/usr/bin/chromium` (override with `CHROMIUM_PATH`). They run real Chromium DOM/editors with the shipped background and page code, using simulated Chrome APIs because this managed browser blocks unpacked extensions. Tests include actual PNG/PDF/blob-file byte transfer, file-only replies, upload waiting/cancellation, and unsupported-file reporting, as well as the text relay protections. Native extension loading, permission prompts, service-worker lifecycle behavior, and actual ChatGPT/Muse integration remain unverified here.
+The browser test requires Playwright in Node's module search path and Chromium at `/usr/bin/chromium` (override with `CHROMIUM_PATH`). It uses real Chromium pages and shipped detector/page/background code with simulated Chrome APIs because this managed browser prohibits unpacked extensions. Native permission prompts, actual service-worker lifecycle, and real ChatGPT/Muse integration are not validated by those tests.

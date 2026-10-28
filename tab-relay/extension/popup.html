@@ -1,24 +1,17 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Tab Relay</title><link rel="stylesheet" href="popup.css"></head>
 <body>
-  <header><div class="mark">⇄</div><div><h1>Tab Relay</h1><p>Two chats. One conversation.</p></div><span id="badge">Idle</span></header>
+  <header><div class="mark" aria-hidden="true">⇄</div><div><h1>Tab Relay</h1><p>Let your chats talk to each other</p></div></header>
   <main>
-    <div class="tabs"><label>Tab A <span>starts the conversation</span><select id="a"></select></label><div class="arrow">⇄</div><label>Tab B <span>receives A’s reply</span><select id="b"></select></label></div>
-    <div class="tools"><button id="refresh" class="subtle">Refresh tabs</button><button id="allow" class="subtle">Allow selected sites</button><button id="configA" class="subtle">Configure A</button><button id="configB" class="subtle">Configure B</button></div>
-    <div class="media-tools"><button id="inspectMedia" class="subtle">Check attachments</button><button id="allowMedia" class="subtle" hidden>Allow file hosts</button><p id="mediaInfo" class="hint">Images + downloadable files: up to 5 per reply, 10 MB each, 20 MB total. Configure upload previews and progress controls on both sites.</p></div>
-    <section id="config" hidden>
-      <h2 id="configTitle">Page controls</h2><p class="hint">Replies must match assistant messages only, including future replies. For attachments, select the hidden file input with CSS (usually input[type="file"]), each completed upload preview, and its progress indicator. The attachment selector is optional; blank detects images and file links automatically.</p>
-      <div id="fields"></div>
-      <div class="tools"><button id="saveProfile">Save controls</button><button id="test" class="subtle">Test read access</button><button id="closeConfig" class="subtle">Close</button></div>
-      <pre id="sample"></pre>
-    </section>
-    <label class="check"><input id="existing" type="checkbox"> Start with tab A’s latest assistant reply</label>
-    <label id="seedLabel">Opening message<textarea id="seed" rows="3" placeholder="Give the two assistants a topic or task…"></textarea></label>
-    <div class="settings"><label>Message limit<input id="limit" type="number" min="1" max="100" value="10"></label><p>Replies are relayed after 8 seconds of unchanged text. Background checks run about every 30 seconds.</p></div>
-    <p class="notice">Messages are submitted automatically and may use your account limits. Keep these conversations dedicated to the relay. Stop prevents future sends; it does not stop replies already generating.</p>
-    <div class="actions"><button id="start">Start relay <span>→</span></button><button id="stop" class="stop">Stop</button></div>
+    <label for="a">CHAT A</label><select id="a" aria-label="Chat A"></select>
+    <div class="divider"><span></span><button id="swap" title="Swap the selected chats" aria-label="Swap the selected chats">⇅</button><span></span></div>
+    <label for="b">CHAT B</label><select id="b" aria-label="Chat B"></select>
+    <div class="automatic"><p><span id="readyIcon">✓</span><span id="detection">Latest replies detected automatically</span></p><p><span>✓</span>Text, images & files shared together</p></div>
+    <button id="start" class="start"><span aria-hidden="true">▶︎</span> START SHARING</button>
+    <button id="stop" class="stop"><span aria-hidden="true">■</span> STOP BOTH CHATS</button>
+    <div class="status" aria-live="polite"><div id="dot" class="dot"></div><div><strong id="statusTitle">Choose your two chats</strong><p id="status">Starts with Chat A’s latest reply. No manual setup.</p></div></div>
     <p id="error" role="alert"></p>
-    <div class="activity"><h2>Activity</h2><p id="status">Choose two tabs to begin.</p><ol id="log"></ol></div>
   </main>
+  <footer>♧ Only the two tabs you choose <span>Chrome may ask for site access</span></footer>
   <script src="popup.js" type="module"></script>
 </body></html>
