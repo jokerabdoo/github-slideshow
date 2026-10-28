@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "Tab Relay",
+  "version": "0.2.1",
+  "description": "Relay text, images and downloadable files between two chat tabs you select.",
+  "permissions": [
+    "tabs",
+    "scripting",
+    "storage",
+    "alarms"
+  ],
+  "optional_host_permissions": [
+    "https://*/*",
+    "http://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Tab Relay"
+  },
+  "minimum_chrome_version": "120"
+}
