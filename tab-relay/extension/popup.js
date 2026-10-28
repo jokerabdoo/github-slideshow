@@ -57,7 +57,7 @@ $('start').onclick=async()=>{
     const resume=run?.status==='paused' && run.needsOrigins?.length && run.sides[0].id===a && run.sides[1].id===b;
     // Permission request stays on the user gesture; no settings screens are needed.
     if(!await chrome.permissions.request({origins:[...new Set([...sites(),...(resume?run.needsOrigins:[])])]}))throw Error('Chrome needs access to the selected chat sites to share messages.');
-    if(!await chrome.permissions.contains({origins:sites()}))throw Error('Chrome has not granted access to both selected sites. Choose “On all sites” in Tab Relay’s site-access menu and reload both tabs.');
+    if(!await chrome.permissions.contains({origins:sites()}))throw Error('Chrome has not granted access to both selected sites. Approve both sites when Start asks, or check Tab Relay’s Details → Site access, then reload both tabs.');
     await saveSelection();await render();
     await request({type:'start',a,b,existing:true,limit:100,automatic:true,resumeId:resume?run.id:undefined});
   }catch(e){error(e);}finally{starting=false;await render();}

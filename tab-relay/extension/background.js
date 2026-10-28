@@ -20,7 +20,7 @@ async function tabInfo(id) {
 async function profileFor(id) {
   const tab = await tabInfo(id);
   const origin = new URL(tab.url).origin;
-  if(!await chrome.permissions.contains({origins:[permissionPattern(tab.url)]}))throw new Error(`Chrome site access is missing for ${origin}. Enable Tab Relay on both selected sites (or choose “On all sites”), reload both tabs, then Start Sharing.`);
+  if(!await chrome.permissions.contains({origins:[permissionPattern(tab.url)]}))throw new Error(`Chrome site access is missing for ${origin}. Open Tab Relay, select both chat tabs, click Start Sharing, and approve access to both sites. Reload the tabs if Chrome asks.`);
   const result=await page(id,{type:'detect'});
   return {tab,origin,profile:result.profile};
 }
@@ -29,7 +29,7 @@ async function page(id, message) {
   catch(error){
     if(/cannot access|permission|host access|not allowed/i.test(error.message || '')){
       const tab=await tabInfo(id);
-      throw new Error(`Chrome blocked Tab Relay on ${new URL(tab.url).origin}. Choose “On all sites” for Tab Relay, reload both chat tabs, then Start Sharing.`);
+      throw new Error(`Chrome blocked Tab Relay on ${new URL(tab.url).origin}. Check that this site is listed in Tab Relay’s Chrome site-access settings, reload both chat tabs, then Start Sharing.`);
     }
     throw error;
   }
