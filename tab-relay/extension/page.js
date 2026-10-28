@@ -10,7 +10,7 @@
   const media = globalThis.__tabRelayMedia;
 
   function snapshot(profile) {
-    if(profile.auto)globalThis.__tabRelayDetect.resolve();
+    const detected=profile.auto?globalThis.__tabRelayDetect.resolve():null;
     const replies = all(profile.reply);
     const inputs = all(profile.input), sends = all(profile.send);
     const input = inputs.at(-1), send = sends.at(-1);
@@ -19,7 +19,7 @@
     const attachments = media.collect(reply,profile);
     // Covers common accessibility signals in addition to the configured stop control.
     const streaming = reply?.getAttribute('aria-busy') === 'true' || !!reply?.querySelector('[aria-busy="true"]');
-    return {text: textOf(reply), attachments, assetsReady:!attachments.some(a=>a.pending), draftAttachments:media.draft(profile), count: replies.length, busy: busy || streaming,
+    return {text: textOf(reply), diagnostics:detected?{replyDetection:detected.replyDetection}:null, attachments, assetsReady:!attachments.some(a=>a.pending), draftAttachments:media.draft(profile), count: replies.length, busy: busy || streaming,
       inputReady: inputs.length === 1 && editable(input), sendReady: sends.length === 1 && !!send && !isDisabled(send),
       inputCount: inputs.length, sendCount: sends.length,
       inputText: input ? ('value' in input ? input.value : textOf(input)) : '', url: location.href};

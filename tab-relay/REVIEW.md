@@ -1,4 +1,4 @@
-# Tab Relay 0.3.0 review
+# Tab Relay 0.3.1 review
 
 ## Changes
 
@@ -15,3 +15,9 @@ All browser fixtures use real Chromium DOM/editors and actual extension code, wi
 ## Remaining limitations
 
 This is an automatic prototype, not a production-readiness or independent security-audit claim. Recognizable DOM semantics/native upload controls are required. Private downloads, custom widgets and unnamed attachment previews can need provider-specific code updates. Unknown controls cause a pause, not a CSS setup request. Completion, upload readiness, and composer clearing are heuristics. Source contents can change during a long recipient upload. Stop cannot undo sent messages or guarantee provider cancellation. Browser access permissions remain required. Size and timeout limits are documented in INSTALL.md.
+
+## Return-reply diagnosis update
+
+The reported screenshot showed one A-to-B submission and a wait for B. That does not establish a single root cause: current-site permission UI does not prove the permission state of the other site, and the local ChatGPT page can differ from the standard reader layout. Version 0.3.1 checks both-site permission and adds role/turn attributes plus assistant-feedback-marked markdown reading. Copy-only/user-message controls do not qualify as an assistant reply. Role and feedback candidates are combined in document order to avoid an older semantic message hiding a newer local-style answer. Hidden feedback toolbars can identify visible response content without being clicked.
+
+Added fixture regressions cover a denied site, a complete A-to-B-to-A round trip with a local-style response lacking author-role attributes, and a missing-reply state that reports its reason and pauses. This reproduces a possible failure shape, not a confirmed inspection of the user’s live DOM. Live ChatGPT/Muse access and provider behavior still require verification in the user’s browser.

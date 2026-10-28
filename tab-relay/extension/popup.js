@@ -21,12 +21,12 @@ async function loadTabs(){
 async function inspect(){
   const version=++checkVersion;
   const [a,b]=selected();if(!a || !b || a===b){$('detection').textContent='Choose two different chat tabs';return;}
-  if(!await chrome.permissions.contains({origins:sites()})){$('detection').textContent='Press Start to connect your chats';return;}
+  if(!await chrome.permissions.contains({origins:sites()})){$('detection').textContent='Both sites need access — press Start';$('readyIcon').textContent='!';return;}
   try{
     const info=await request({type:'inspectPair',a,b});
     if(version!==checkVersion || run?.status==='running')return;
     const ready=info.every(t=>t.ready) && info.some(t=>t.hasReply || t.busy);
-    $('detection').textContent=ready?'Latest replies detected':'Open a conversation in each tab';
+    $('readyIcon').textContent=ready?'✓':'!';$('detection').textContent=ready?'Latest replies detected':'Open a conversation in each tab';
     $('dot').className='dot '+(ready?'ready':'');
     $('statusTitle').textContent=ready?'Ready to start':'Waiting for your chats';
     $('status').textContent=ready?`Starts with ${info[0].hasReply || info[0].busy?'Chat A':'Chat B'}’s latest reply.`:'Send a message in either chat, then press Start.';
@@ -41,6 +41,7 @@ async function render(){
   if(run){
     $('dot').className='dot '+run.status;
     $('statusTitle').textContent=active?'Sharing automatically':run.status==='paused'?'Sharing paused':run.status==='stopped'?'Stopped':'Session complete';
+    if(active && run.waitReason==='reply-not-detected'){$('statusTitle').textContent=`Looking for Chat ${run.next?'B':'A'}’s reply`;$('dot').className='dot paused';}
     $('status').textContent=run.note || `${run.sent} messages shared · waiting for Chat ${run.next?'B':'A'}.`;
     if(active)$('detection').textContent='Following the latest replies';
     else if(run.status==='stopped')$('detection').textContent='Automatic sharing is stopped';
@@ -56,6 +57,7 @@ $('start').onclick=async()=>{
     const resume=run?.status==='paused' && run.needsOrigins?.length && run.sides[0].id===a && run.sides[1].id===b;
     // Permission request stays on the user gesture; no settings screens are needed.
     if(!await chrome.permissions.request({origins:[...new Set([...sites(),...(resume?run.needsOrigins:[])])]}))throw Error('Chrome needs access to the selected chat sites to share messages.');
+    if(!await chrome.permissions.contains({origins:sites()}))throw Error('Chrome has not granted access to both selected sites. Choose “On all sites” in Tab Relay’s site-access menu and reload both tabs.');
     await saveSelection();await render();
     await request({type:'start',a,b,existing:true,limit:100,automatic:true,resumeId:resume?run.id:undefined});
   }catch(e){error(e);}finally{starting=false;await render();}

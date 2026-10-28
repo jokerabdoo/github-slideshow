@@ -40,7 +40,7 @@ const assert = require('node:assert/strict');
     const pages=new Map([[1,await context.newPage()],[2,await context.newPage()]]);
     const a=pages.get(1), b=pages.get(2);
     await a.goto(base+'/a');await b.goto(base+'/b');
-    const data={}, handlers=[];let startup;
+    const data={}, handlers=[];let startup;let siteAccess=true;let injectionBlocked=false;
     const get=async key=>key===null?structuredClone(data):{[key]:structuredClone(data[key])};
     const set=async values=>{Object.assign(data,structuredClone(values));};
     const tabInfo=id=>({id,url:pages.get(id).url(),title:'Chat '+id});
@@ -52,13 +52,14 @@ const assert = require('node:assert/strict');
         listener(message,{},resolve);
       }),message)},
       scripting:{executeScript:async({target})=>{
+        if(injectionBlocked)throw Error('Cannot access contents of the page. Extension permission is required.');
         const p=pages.get(target.tabId);
         await p.evaluate(()=>{globalThis.chrome={runtime:{onMessage:{addListener:fn=>{globalThis.contentListener=fn;}},sendMessage:async()=>({})}};});
         for(const name of ['detect.js','media.js','page.js'])await p.addScriptTag({content:fs.readFileSync(path.join(root,name),'utf8')});
       }},
       alarms:{create:async()=>{},clear:async()=>{},onAlarm:{addListener:()=>{}}},
       action:{setBadgeText:async()=>{},setBadgeBackgroundColor:async()=>{}},
-      permissions:{contains:async()=>false},
+      permissions:{contains:async({origins})=>siteAccess && origins.every(origin=>origin==='http://127.0.0.1/*')},
       runtime:{onMessage:{addListener:fn=>handlers.push(fn)},onStartup:{addListener:fn=>{startup=fn;}}}
     };
     await import('../extension/background.js');
@@ -263,6 +264,31 @@ const assert = require('node:assert/strict');
     assert.equal(await b.evaluate(()=>window.stopClicks),stopCounts[1]+1);
     console.log('PASS: Stop Both Chats clicks both detected generation-stop controls');
 
+    const beforeDenied=await b.evaluate(()=>window.sent.length);
+    siteAccess=false;
+    await assert.rejects(command({type:'start',a:1,b:2,existing:true,limit:2,automatic:true}),/Chrome site access is missing/);
+    assert.equal(await b.evaluate(()=>window.sent.length),beforeDenied);siteAccess=true;
+    console.log('PASS: missing site access blocks Start with a clear two-site permission message');
+    injectionBlocked=true;
+    await assert.rejects(command({type:'start',a:1,b:2,existing:true,limit:2,automatic:true}),/Chrome blocked Tab Relay/);
+    injectionBlocked=false;
+    console.log('PASS: Chrome withholding page injection produces a site-access fix instead of silently waiting');
+
+    await a.evaluate(()=>{document.querySelector('#messages').innerHTML='<div class="assistant">Muse round-trip prompt</div>';});
+    await b.evaluate(()=>{
+      document.body.innerHTML='<main><div id="local-messages"></div><form><textarea id="prompt-textarea" placeholder="Ask for follow-up changes"></textarea><button type="submit" aria-label="Send message">↑</button></form></main>';
+      window.sent=[];
+      document.querySelector('form').onsubmit=e=>{
+        e.preventDefault();const input=document.querySelector('textarea');window.sent.push(input.value);input.value='';
+        document.querySelector('#local-messages').insertAdjacentHTML('beforeend','<article class="local-turn"><div class="markdown">ChatGPT local return answer</div><div style="display:none"><button aria-label="Good response"></button><button aria-label="Bad response"></button></div></article>');
+      };
+    });
+    await command({type:'start',a:1,b:2,existing:true,limit:2,automatic:true});await settle();
+    assert.deepEqual(await b.evaluate(()=>window.sent),['Muse round-trip prompt']);
+    await settle();assert.equal(getRun().status,'done',getRun().note);
+    assert.equal((await a.evaluate(()=>window.sent)).at(-1),'ChatGPT local return answer');
+    console.log('PASS: feedback-marked ChatGPT local layout returns its reply to Muse with no author-role attribute');
+
     const semantic=await context.newPage();await semantic.goto(base+'/semantic-chat');
     await semantic.setContent('<textarea placeholder="Search videos"></textarea><section><div data-message-role="user">User words</div><div data-message-role="assistant">Assistant answer only</div></section><form><textarea placeholder="Ask Muse a question"></textarea><button type="submit" aria-label="Send message">↑</button><button type="button" aria-label="Stop generating">■</button></form>');
     await semantic.addScriptTag({content:fs.readFileSync(path.join(root,'detect.js'),'utf8')});
@@ -278,6 +304,15 @@ const assert = require('node:assert/strict');
     await command({type:'start',a:1,b:2,existing:true,limit:1,automatic:true});
     assert.equal(getRun().next,1);await command({type:'stop'});
     console.log('PASS: with no saved configuration, Start automatically chooses Chat B when only B has a latest reply');
+
+    await a.locator('#messages').evaluate(el=>{el.innerHTML='<div class="assistant">A response that will disappear</div>';});
+    await command({type:'start',a:1,b:2,existing:true,limit:4,automatic:true});
+    await a.locator('#messages').evaluate(el=>el.replaceChildren());
+    await command({type:'tick'});assert.equal(getRun().waitReason,'reply-not-detected');
+    clock+=31000;await command({type:'tick'});assert.equal(getRun().status,'paused');assert.match(getRun().note,/could not be detected/);
+    // Restore a real source reply for the popup flow.
+    await a.locator('#messages').evaluate(el=>{el.innerHTML='<div class="assistant">Ready for another test</div>';});
+    console.log('PASS: unreadable assistant responses show the exact wait reason and pause instead of silently waiting');
 
     const popup=await context.newPage();
     await popup.exposeFunction('relayTestApi',async(method,value)=>{

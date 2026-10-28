@@ -15,15 +15,35 @@
     mark('input',composer?[composer]:[]);
     const replyGroups=[
       '[data-message-author-role="assistant"]','[data-role="assistant"],[data-role="model"]',
+      '[data-turn="assistant"],[data-author="assistant"],[data-author-role="assistant"]',
       '[data-message-role="assistant"],[data-message-role="model"]','[data-sender="assistant"],[data-sender="ai"]',
       '[data-is-user="false"]','.assistant-message,.message.assistant,.chat-message.assistant,.ai-message,.assistant',
-      '[data-testid="assistant-message"],[data-testid="chat-message-assistant"]',
+      '[data-testid="assistant-message"],[data-testid="chat-message-assistant"],[data-testid="conversation-turn-assistant"]',
       '[aria-label="Assistant response"],[aria-label="Muse response"]'
     ];
-    let replies=[];
-    for(const selector of replyGroups){const found=list(selector).filter(visible);if(found.length){replies=found;break;}}
+    let replies=replyGroups.flatMap(selector=>list(selector).filter(visible));
+    const semanticCount=replies.length;
+    // ChatGPT's /local pages can render answers without the normal author-role
+    // attribute. Feedback actions identify an assistant response, unlike Copy
+    // buttons which can also belong to user messages or arbitrary page content.
+    const feedback=list('button[data-testid="good-response-turn-action-button"],button[data-testid="bad-response-turn-action-button"],button[aria-label="Good response"],button[aria-label="Bad response"],button[aria-label="Thumbs up"],button[aria-label="Thumbs down"]');
+    const userSelector='[data-turn="user"],[data-role="user"],[data-message-author-role="user"],[data-message-role="user"],[data-is-user="true"],.user-message,.message.user';
+    let feedbackCount=0;
+    for(const action of feedback){
+      if(action.closest(userSelector))continue;
+      let parent=action.parentElement;
+      for(let depth=0;parent && depth<9;depth++,parent=parent.parentElement){
+        if(parent===document.body || parent===document.documentElement || parent.matches('main,[role="log"]'))break;
+        if(parent.matches(userSelector))break;
+        const content=list('.markdown,.prose,[data-testid="assistant-response"],[data-testid="message-content"],[data-message-content]',parent).filter(el=>visible(el) && !el.closest(userSelector) && (el.innerText.trim() || el.querySelector('img,a[download],svg')));
+        if(!content.length)continue;
+        if(feedback.filter(el=>parent.contains(el)).length>2)break;
+        replies.push(parent);feedbackCount++;break;
+      }
+    }
     // A markdown wrapper is used only when it is explicitly in a non-user message row.
     if(!replies.length)replies=list('[data-message] .prose,[data-message] .markdown,.message-row .prose').filter(el=>visible(el) && !el.closest('[data-role="user"],[data-message-author-role="user"],[data-is-user="true"],.user-message,.message.user') && /assistant|model|ai-response|justify-start/.test(el.closest('[data-message],.message-row')?.className || ''));
+    replies=[...new Set(replies)].filter(el=>!replies.some(other=>other!==el && el.contains(other))).sort((a,b)=>a.compareDocumentPosition(b)&Node.DOCUMENT_POSITION_FOLLOWING?-1:1);
     mark('reply',replies);
     let scope=composer?.closest('form,[data-testid="composer"],[data-composer]') || composer?.parentElement;
     if(scope && !scope.querySelector('button') && scope.parentElement)scope=scope.parentElement;
@@ -53,7 +73,7 @@
     mark('uploaded',previews);
     const progress=list('[role="progressbar"],.upload-progress,[data-upload-state="uploading"],[aria-label*="uploading" i],.upload-spinner').filter(el=>visible(el) && inComposer(el));
     mark('uploadPending',progress);
-    return {...selectors,attachment:'',auto:true,kind};
+    return {...selectors,attachment:'',auto:true,kind,replyDetection:feedbackCount?'assistant-feedback':semanticCount?'assistant-role':replies.length?'message-row':'not-found'};
   }
   globalThis.__tabRelayDetect={resolve};
 })();

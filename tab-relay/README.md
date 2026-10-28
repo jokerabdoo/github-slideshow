@@ -1,16 +1,22 @@
-# Tab Relay 0.3.0 — Automatic sharing
+# Tab Relay 0.3.1 — Automatic sharing
 
 Choose two chat tabs, click **Start Sharing**, and click **Stop Both Chats** when finished. There are no configuration fields, opening-prompt boxes, reply-type switches, or manual attachment selectors.
 
 ## Install or update
 
-1. Extract `TabRelay-v0.3.0.zip`.
+1. Extract `TabRelay-v0.3.1.zip`.
 2. Open `chrome://extensions` and enable **Developer mode**.
 3. For a new installation, click **Load unpacked** and select the extracted `tab-relay-extension` folder containing `manifest.json`.
 4. To replace 0.2.1, remove that extension and load the new folder, or replace the old folder's contents and click **Reload**. Reload the chat tabs too, so their page adapters update.
 5. Pin Tab Relay using Chrome's puzzle-piece menu.
 
 Requires Chrome/Chromium 120+. The browser may require you to approve access to the two sites. This is a browser permission, not extension configuration.
+
+## Site access and return-reply fix
+
+Chrome must allow access to both selected sites. In Chrome’s Extensions menu, open Tab Relay’s three-dot menu → This can read and change site data → **On all sites**, then reload both chat tabs. Alternatively approve each selected site when Start asks. The extension still relays only between the two selected tabs. The permission check now reports the missing site explicitly.
+
+Version 0.3.1 also recognizes assistant feedback controls around markdown output on ChatGPT local-style pages when the normal assistant-role marker is absent. The status distinguishes generating, loading images, waiting for a new reply, and a reply that could not be detected. Missing-reply detection pauses after 30 seconds idle rather than silently showing a successful-looking sharing status.
 
 ## Use
 

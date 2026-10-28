@@ -20,11 +20,19 @@ async function tabInfo(id) {
 async function profileFor(id) {
   const tab = await tabInfo(id);
   const origin = new URL(tab.url).origin;
+  if(!await chrome.permissions.contains({origins:[permissionPattern(tab.url)]}))throw new Error(`Chrome site access is missing for ${origin}. Enable Tab Relay on both selected sites (or choose “On all sites”), reload both tabs, then Start Sharing.`);
   const result=await page(id,{type:'detect'});
   return {tab,origin,profile:result.profile};
 }
 async function page(id, message) {
-  await chrome.scripting.executeScript({target:{tabId:id}, files:['detect.js','media.js','page.js']});
+  try {await chrome.scripting.executeScript({target:{tabId:id}, files:['detect.js','media.js','page.js']});}
+  catch(error){
+    if(/cannot access|permission|host access|not allowed/i.test(error.message || '')){
+      const tab=await tabInfo(id);
+      throw new Error(`Chrome blocked Tab Relay on ${new URL(tab.url).origin}. Choose “On all sites” for Tab Relay, reload both chat tabs, then Start Sharing.`);
+    }
+    throw error;
+  }
   if (message.type === 'send' && stopRequested) throw new Error('Stopped before sending.');
   const result = await chrome.tabs.sendMessage(id, message);
   if (!result?.ok) throw new Error(result?.error || 'The page did not respond.');
@@ -120,7 +128,17 @@ async function tick() {
     if (run.phase === 'sending') {await pause(run, 'Delivery was interrupted or uncertain. Check both chats before starting again.'); return;}
     if (Date.now() - run.waitingSince > 10 * 60 * 1000) {await pause(run, 'No completed new reply within 10 minutes. Check the selected tabs.'); return;}
     const current = await snap(run.sides[run.next]);
+    const sourceName=`Chat ${run.next?'B':'A'}`;
+    run.diagnostics={side:run.next,replyCount:current.count,inputCount:current.inputCount,inputReady:current.inputReady,busy:current.busy,replyDetection:current.diagnostics?.replyDetection || 'explicit'};
+    if(current.busy){run.waitReason='generating';run.note=`${sourceName} is still generating. Waiting for it to finish.`;run.missingReplySince=null;}
+    else if(!current.count){
+      run.waitReason='reply-not-detected';
+      run.note=`${sourceName}: no assistant reply is detected on this page yet.`;
+      run.missingReplySince ??= Date.now();
+      if(Date.now()-run.missingReplySince>=30000){await pause(run,`${sourceName}’s assistant reply could not be detected. This page layout needs a reader update; nothing was sent.`);return;}
+    } else {run.waitReason='settling';run.missingReplySince=null;run.note=!current.inputReady?`${sourceName}’s message box is not ready. Waiting.`:current.assetsReady===false?`${sourceName}’s images are still loading.`:`${sourceName} reply detected. Waiting for the text to settle.`;}
     if (!run.existing && !newReply(run.baseline, current)) {
+      if(current.count && !current.busy)run.note=`Waiting for a new assistant reply from ${sourceName}.`;
       run.observation = null; await save(run); return;
     }
     run.observation = observe(run.observation, current, Date.now());
@@ -146,7 +164,7 @@ async function tick() {
     if (stopRequested) {await pause(run, 'Stopped.', 'stopped'); return;}
     await page(run.sides[target].id, {type:'send', profile:run.sides[target].profile, text:current.text, attachments, expectedUrl:run.sides[target].url});
     run.seen.push(key); run.sent++; run.next = target; run.baseline = baseline;
-    run.existing = false; run.observation = null; run.phase = 'waiting'; run.waitingSince = Date.now();
+    run.existing = false; run.observation = null; run.phase = 'waiting'; run.waitingSince = Date.now();run.note='';run.waitReason='';run.missingReplySince=null;
     log(run, `Message ${run.sent}/${run.limit} accepted. Waiting for tab ${target ? 'B' : 'A'}.`);
     if (stopRequested) await pause(run, 'Stopped. A message already in progress may have been sent.', 'stopped');
     else if (run.sent >= run.limit) await pause(run, 'Message limit reached.', 'done');
